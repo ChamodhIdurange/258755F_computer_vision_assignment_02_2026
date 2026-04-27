@@ -1,75 +1,73 @@
 import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import RANSACRegressor
 
-# Load the dataset
-D = np.genfromtxt("lines.csv", delimiter=",", skip_header=1)
-X_cols = D[:, :3]
-Y_cols = D[:, 3:]
+# 1. LOAD DATA
+try:
+    D = np.genfromtxt("lines.csv", delimiter=",", skip_header=1)
+    X_cols = D[:, :3]
+    Y_cols = D[:, 3:]
+except FileNotFoundError:
+    print("Error: lines.csv not found in the current directory.")
+    exit()
 
+
+# (a) TOTAL LEAST SQUARES (TLS) - First Line Only
 def total_least_squares(x, y):
-    """Computes Total Least Squares fitting returning line parameters ax + by + c = 0"""
     x_mean, y_mean = np.mean(x), np.mean(y)
-    M = np.vstack((x - x_mean, y - y_mean)).T
+    pts = np.vstack([x - x_mean, y - y_mean]).T
     
-    _, _, Vt = np.linalg.svd(M)
+    _, _, vh = np.linalg.svd(pts)
+    a, b = vh[1, :]
     
-    a, b = Vt[-1, :]
-    c = -(a * x_mean + b * y_mean)
-    
-    # Standardize direction so parameters match visually
-    if b < 0:
-        a, b, c = -a, -b, -c
-        
-    return a, b, c
+    # Solve for d using the centroid: ax + by + d = 0
+    d = -(a * x_mean + b * y_mean)
+    return a, b, d
 
-# ==========================================
-# Part (a): TLS on the first line data
-# ==========================================
-x1 = X_cols[:, 0]
-y1 = Y_cols[:, 0]
+x1, y1 = X_cols[:, 0], Y_cols[:, 0]
+a, b, d = total_least_squares(x1, y1)
 
-a1, b1, c1 = total_least_squares(x1, y1)
-print(f"--- Part (a): Line 1 Parameters ---")
-print(f"Equation: {a1:.4f}x + {b1:.4f}y + {c1:.4f} = 0\n")
+print("--- Question 1(a) ---")
+print(f"TLS Parameters: {a:.4f}x + {b:.4f}y + {d:.4f} = 0")
+print(f"Slope (m): {(-a/b):.4f}, Intercept (c): {(-d/b):.4f}\n")
 
-# ==========================================
-# Part (b): RANSAC on all flattened data
-# ==========================================
-np.random.seed(42) # Seed for reproducibility
-points = np.vstack((X_cols.flatten(), Y_cols.flatten())).T
+# (b) SEQUENTIAL RANSAC - Three Lines
+X_all = X_cols.flatten().reshape(-1, 1)
+Y_all = Y_cols.flatten()
 
-def fit_line_ransac(points, iterations=5000, threshold=0.5):
-    best_inliers = []
-    
-    for _ in range(iterations):
-        idx = np.random.choice(len(points), 2, replace=False)
-        p1, p2 = points[idx]
-        
-        a = p2[1] - p1[1]
-        b = p1[0] - p2[0]
-        c_val = p2[0]*p1[1] - p1[0]*p2[1]
-        
-        norm = np.hypot(a, b)
-        if norm == 0: continue
-        a, b, c_val = a/norm, b/norm, c_val/norm
-        
-        distances = np.abs(a * points[:, 0] + b * points[:, 1] + c_val)
-        inliers = np.where(distances < threshold)[0]
-        
-        if len(inliers) > len(best_inliers):
-            best_inliers = inliers
-            
-    # Refine the best model using TLS on the consensus set
-    inlier_points = points[best_inliers]
-    final_a, final_b, final_c = total_least_squares(inlier_points[:, 0], inlier_points[:, 1])
-    
-    return (final_a, final_b, final_c), best_inliers
+remaining_X = X_all.copy()
+remaining_Y = Y_all.copy()
+line_colors = ['red', 'green', 'blue']
 
-print(f"--- Part (b): RANSAC Three Lines ---")
-remaining_points = points.copy()
+plt.figure(figsize=(10, 6))
+plt.scatter(X_all, Y_all, color='lightgray', label='Original Points', s=10)
 
+print("--- Question 1(b) ---")
 for i in range(3):
-    model, inlier_idx = fit_line_ransac(remaining_points, iterations=5000, threshold=0.5)
-    print(f"Line {i+1} Parameters: {model[0]:.4f}x + {model[1]:.4f}y + {model[2]:.4f} = 0 (Inliers: {len(inlier_idx)})")
+    # Fit RANSAC model
+    ransac = RANSACRegressor(residual_threshold=0.5) 
+    ransac.fit(remaining_X, remaining_Y)
     
-    # Mask the consensus: remove inliers for the next iteration
-    remaining_points = np.delete(remaining_points, inlier_idx, axis=0)
+    inlier_mask = ransac.inlier_mask_
+    outlier_mask = np.logical_not(inlier_mask)
+    
+    slope = ransac.estimator_.coef_[0]
+    intercept = ransac.estimator_.intercept_
+    print(f"Line {i+1} found: y = {slope:.4f}x + {intercept:.4f}")
+    
+    line_x = np.linspace(X_all.min(), X_all.max(), 100).reshape(-1, 1)
+    line_y = ransac.predict(line_x)
+    
+    # Visualization
+    plt.plot(line_x, line_y, color=line_colors[i], label=f'Line {i+1}', linewidth=2)
+    plt.scatter(remaining_X[inlier_mask], remaining_Y[inlier_mask], color=line_colors[i], s=15)
+    
+    remaining_X = remaining_X[outlier_mask]
+    remaining_Y = remaining_Y[outlier_mask]
+
+plt.title("Sequential RANSAC Line Fitting")
+plt.xlabel("X")
+plt.ylabel("Y")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
