@@ -27,7 +27,7 @@ def total_least_squares(x, y):
 x1, y1 = X_cols[:, 0], Y_cols[:, 0]
 a, b, d = total_least_squares(x1, y1)
 
-print("--- Question 1(a) ---")
+print(" Question 1(a) ")
 print(f"TLS Parameters: {a:.4f}x + {b:.4f}y + {d:.4f} = 0")
 print(f"Slope (m): {(-a/b):.4f}, Intercept (c): {(-d/b):.4f}\n")
 
@@ -42,11 +42,20 @@ line_colors = ['red', 'green', 'blue']
 plt.figure(figsize=(10, 6))
 plt.scatter(X_all, Y_all, color='lightgray', label='Original Points', s=10)
 
-print("--- Question 1(b) ---")
+print(" Question 1(b) ")
 for i in range(3):
+    if len(remaining_X) < 2:
+        print(f"Not enough points left to find Line {i+1}.")
+        break
+
     # Fit RANSAC model
-    ransac = RANSACRegressor(residual_threshold=0.5) 
-    ransac.fit(remaining_X, remaining_Y)
+    ransac = RANSACRegressor(residual_threshold=0.1) 
+    
+    try:
+        ransac.fit(remaining_X, remaining_Y)
+    except ValueError:
+        print(f"RANSAC failed to find a valid consensus for Line {i+1}.")
+        break
     
     inlier_mask = ransac.inlier_mask_
     outlier_mask = np.logical_not(inlier_mask)
@@ -54,6 +63,7 @@ for i in range(3):
     slope = ransac.estimator_.coef_[0]
     intercept = ransac.estimator_.intercept_
     print(f"Line {i+1} found: y = {slope:.4f}x + {intercept:.4f}")
+    print(f"  Inlier count: {np.sum(inlier_mask)}")
     
     line_x = np.linspace(X_all.min(), X_all.max(), 100).reshape(-1, 1)
     line_y = ransac.predict(line_x)
@@ -71,7 +81,3 @@ plt.ylabel("Y")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
-
-
-
-
